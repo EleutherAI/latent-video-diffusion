@@ -19,8 +19,9 @@ LR = 5e-5
 CLIP_NORM = 30
 N_LATENT = 2048
 VIDEO_PATH = "recording/video.avi"
-BS = 64
-K = 3
+BS = 1 
+SEGMENT_LENGTH = 128
+K = 1
 N_ITER = 300000
 CHECKPOINT_EVERY = 2000
 CHECKPOINT_DIR = 'checkpoints'
@@ -31,9 +32,9 @@ class ConvResBlock(eqx.Module):
     layer_norm: eqx.nn.LayerNorm
     def __init__(self, n_latent, key):
         a,b = jax.random.split(key, 2) 
-        padding = [(1,1),(1,1)]
-        self.inp_layer = eqx.nn.Conv(num_spatial_dims=2, in_channels=n_latent, out_channels=n_latent*2, kernel_size=(3,3), stride=1,padding=padding,key=a)
-        self.outp_layer = eqx.nn.Conv(num_spatial_dims=2, in_channels=n_latent*2, out_channels=n_latent, kernel_size=(3,3), stride=1,padding=padding,key=b)
+        padding = [(0,0),(1,1),(1,1)]
+        self.inp_layer = eqx.nn.Conv(num_spatial_dims=3, in_channels=n_latent, out_channels=n_latent*2, kernel_size=(1,3,3), stride=1,padding=padding,key=a)
+        self.outp_layer = eqx.nn.Conv(num_spatial_dims=3, in_channels=n_latent*2, out_channels=n_latent, kernel_size=(1,3,3), stride=1,padding=padding,key=b)
         self.layer_norm = eqx.nn.LayerNorm(shape=None, elementwise_affine=False)
     
     def __call__(self, x):
@@ -49,28 +50,35 @@ class VAEEncoder(eqx.Module):
     conv_layers: list
     mean_output: eqx.nn.Linear 
     def __init__(self, n_latent, k, key):
-        keys = jax.random.split(key, 12) 
+        keys = jax.random.split(key, 18) 
         self.conv_layers = [
-            eqx.nn.Conv(num_spatial_dims=2, in_channels=3, out_channels=8*k, kernel_size=(2,2), stride=2,key=keys[0]),
-            ConvResBlock(8*k,key=keys[1]),
-            eqx.nn.Conv(num_spatial_dims=2, in_channels=8*k, out_channels=16*k, kernel_size=(2,2), stride=2,key=keys[2], padding=[(0,0),(1,1)]),
-            ConvResBlock(16*k,key=keys[3]),
-            eqx.nn.Conv(num_spatial_dims=2, in_channels=16*k, out_channels=32*k, kernel_size=(2,2), stride=2,key=keys[4]),
-            ConvResBlock(32*k,key=keys[5]),
-            eqx.nn.Conv(num_spatial_dims=2, in_channels=32*k, out_channels=64*k, kernel_size=(2,2), stride=2,key=keys[6], padding=[(0,0),(1,1)]),
-            ConvResBlock(64*k,key=keys[7]),
-            eqx.nn.Conv(num_spatial_dims=2, in_channels=64*k, out_channels=128*k, kernel_size=(2,2), stride=2,key=keys[8]),
-            ConvResBlock(128*k,key=keys[8]),
-            eqx.nn.Conv(num_spatial_dims=2, in_channels=128*k, out_channels=256*k, kernel_size=(2,2), stride=2,key=keys[9]),
-            ConvResBlock(256*k,key=keys[10])
+            eqx.nn.Conv(num_spatial_dims=3, in_channels=3, out_channels=8*k, kernel_size=(1,2,2), stride=(1,2,2),key=keys[0]),
+            eqx.nn.Conv(num_spatial_dims=3, in_channels=8*k, out_channels=8*k, kernel_size=(2,1,1), stride=(1,1,1),key=keys[1]),
+            ConvResBlock(8*k,key=keys[2]),
+            eqx.nn.Conv(num_spatial_dims=3, in_channels=8*k, out_channels=16*k, kernel_size=(1,2,2), stride=(1,2,2),key=keys[3], padding=[(0,0),(0,0),(1,1)]),
+            eqx.nn.Conv(num_spatial_dims=3, in_channels=16*k, out_channels=16*k, kernel_size=(2,1,1), stride=(1,1,1),key=keys[4]),
+            ConvResBlock(16*k,key=keys[5]),
+            eqx.nn.Conv(num_spatial_dims=3, in_channels=16*k, out_channels=32*k, kernel_size=(1,2,2), stride=(1,2,2),key=keys[6]),
+            eqx.nn.Conv(num_spatial_dims=3, in_channels=32*k, out_channels=32*k, kernel_size=(2,1,1), stride=(1,1,1),key=keys[7]),
+            ConvResBlock(32*k,key=keys[8]),
+            eqx.nn.Conv(num_spatial_dims=3, in_channels=32*k, out_channels=64*k, kernel_size=(1,2,2), stride=(1,2,2),key=keys[9], padding=[(0,0),(0,0),(1,1)]),
+            eqx.nn.Conv(num_spatial_dims=3, in_channels=64*k, out_channels=64*k, kernel_size=(2,1,1), stride=(1,1,1),key=keys[10]),
+            ConvResBlock(64*k,key=keys[11]),
+            eqx.nn.Conv(num_spatial_dims=3, in_channels=64*k, out_channels=128*k, kernel_size=(1,2,2), stride=(1,2,2),key=keys[12]),
+            eqx.nn.Conv(num_spatial_dims=3, in_channels=128*k, out_channels=128*k, kernel_size=(2,1,1), stride=(1,1,1),key=keys[13]),
+            ConvResBlock(128*k,key=keys[14]),
+            eqx.nn.Conv(num_spatial_dims=3, in_channels=128*k, out_channels=256*k, kernel_size=(1,2,2), stride=(1,2,2),key=keys[15]),
+            eqx.nn.Conv(num_spatial_dims=3, in_channels=256*k, out_channels=256*k, kernel_size=(2,1,1), stride=(1,1,1),key=keys[16]),
+            ConvResBlock(256*k,key=keys[17])
         ]
-        self.mean_output = eqx.nn.Linear(10240*k, n_latent, key=keys[11])
+        self.mean_output = eqx.nn.Conv(num_spatial_dims=1, in_channels=10240*k, out_channels=n_latent, kernel_size=(1,),key=keys[18]) 
 
     def __call__(self,x):
         h = (x/256)-0.5
         for layer in self.conv_layers:
             h = layer(h)
-        mean = self.mean_output(h.reshape(-1))
+        l_dim = h.shape[1]
+        mean = self.mean_output(h.reshape(-1,l_dim))
         log_var = jnp.zeros_like(mean)-3
         return mean, log_var
 
@@ -81,27 +89,34 @@ class VAEDecoder(eqx.Module):
     mean_output: eqx.nn.Conv
     log_var_output: eqx.nn.Conv
     def __init__(self, n_latent, k, key):
-        keys = jax.random.split(key, 14) 
-        self.input_layer = eqx.nn.Linear(n_latent, 10240*k, key=keys[11])
+        keys = jax.random.split(key, 21) 
+        self.input_layer = eqx.nn.Conv(num_spatial_dims=1, in_channels=n_latent, out_channels=10240*k, kernel_size=(1,),key=keys[0])
         self.conv_layers = [
-            ConvResBlock(256*k,key=keys[10]),
-            eqx.nn.ConvTranspose(num_spatial_dims=2, in_channels=256*k, out_channels=128*k, kernel_size=(2,2), stride=2,key=keys[9]),
-            ConvResBlock(128*k,key=keys[8]),
-            eqx.nn.ConvTranspose(num_spatial_dims=2, in_channels=128*k, out_channels=64*k, kernel_size=(2,2), stride=2,key=keys[8]),
+            ConvResBlock(256*k,key=keys[1]),
+            eqx.nn.Conv(num_spatial_dims=3, in_channels=256*k, out_channels=256*k, kernel_size=(2,1,1), stride=(1,1,1),key=keys[2]),
+            eqx.nn.ConvTranspose(num_spatial_dims=3, in_channels=256*k, out_channels=128*k, kernel_size=(1,2,2), stride=(1,2,2),key=keys[3]),
+            ConvResBlock(128*k,key=keys[4]),
+            eqx.nn.Conv(num_spatial_dims=3, in_channels=128*k, out_channels=128*k, kernel_size=(2,1,1), stride=(1,1,1),key=keys[5]),
+            eqx.nn.ConvTranspose(num_spatial_dims=3, in_channels=128*k, out_channels=64*k, kernel_size=(1,2,2), stride=(1,2,2),key=keys[6]),
             ConvResBlock(64*k,key=keys[7]),
-            eqx.nn.ConvTranspose(num_spatial_dims=2, in_channels=64*k, out_channels=32*k, kernel_size=(2,2), stride=2,key=keys[6], padding=[(0,0),(1,1)]),
-            ConvResBlock(32*k,key=keys[5]),
-            eqx.nn.ConvTranspose(num_spatial_dims=2, in_channels=32*k, out_channels=16*k, kernel_size=(2,2), stride=2,key=keys[4]),
-            ConvResBlock(16*k,key=keys[3]),
-            eqx.nn.ConvTranspose(num_spatial_dims=2, in_channels=16*k, out_channels=8*k, kernel_size=(2,2), stride=2,key=keys[2], padding=[(0,0),(1,1)]),
-            ConvResBlock(8*k,key=keys[1]),
-            eqx.nn.ConvTranspose(num_spatial_dims=2, in_channels=8*k, out_channels=8*k, kernel_size=(2,2), stride=2,key=keys[0]),
+            eqx.nn.Conv(num_spatial_dims=3, in_channels=64*k, out_channels=64*k, kernel_size=(2,1,1), stride=(1,1,1),key=keys[8]),
+            eqx.nn.ConvTranspose(num_spatial_dims=3, in_channels=64*k, out_channels=32*k, kernel_size=(1,2,2), stride=(1,2,2),key=keys[9], padding=[(0,0),(0,0),(1,1)]),
+            ConvResBlock(32*k,key=keys[10]),
+            eqx.nn.Conv(num_spatial_dims=3, in_channels=32*k, out_channels=32*k, kernel_size=(2,1,1), stride=(1,1,1),key=keys[11]),
+            eqx.nn.ConvTranspose(num_spatial_dims=3, in_channels=32*k, out_channels=16*k, kernel_size=(1,2,2), stride=(1,2,2),key=keys[12]),
+            ConvResBlock(16*k,key=keys[13]),
+            eqx.nn.Conv(num_spatial_dims=3, in_channels=16*k, out_channels=16*k, kernel_size=(2,1,1), stride=(1,1,1),key=keys[14]),
+            eqx.nn.ConvTranspose(num_spatial_dims=3, in_channels=16*k, out_channels=8*k, kernel_size=(1,2,2), stride=(1,2,2),key=keys[15], padding=[(0,0),(0,0),(1,1)]),
+            ConvResBlock(8*k,key=keys[16]),
+            eqx.nn.Conv(num_spatial_dims=3, in_channels=8*k, out_channels=8*k, kernel_size=(2,1,1), stride=(1,1,1),key=keys[17]),
+            eqx.nn.ConvTranspose(num_spatial_dims=3, in_channels=8*k, out_channels=8*k, kernel_size=(1,2,2), stride=(1,2,2),key=keys[18]),
         ]
-        self.mean_output = eqx.nn.Conv(num_spatial_dims=2, in_channels=8*k, out_channels=3, kernel_size=(1,1), key=keys[12])
-        self.log_var_output = eqx.nn.Conv(num_spatial_dims=2, in_channels=8*k, out_channels=3, kernel_size=(1,1), key=keys[13])
+        self.mean_output = eqx.nn.Conv(num_spatial_dims=3, in_channels=8*k, out_channels=3, kernel_size=(1,1,1), key=keys[19])
+        self.log_var_output = eqx.nn.Conv(num_spatial_dims=3, in_channels=8*k, out_channels=3, kernel_size=(1,1,1), key=keys[20])
 
     def __call__(self,x):
-        h = self.input_layer(x).reshape(-1,8,5)
+        l_dim = x.shape[1]
+        h = self.input_layer(x).reshape(-1,l_dim,8,5)
         for layer in self.conv_layers:
             h = layer(h)
         mean = (self.mean_output(h)+0.5)*128
@@ -148,12 +163,15 @@ def vae_loss(vae, data, key):
 
     #Ground truth predictions
     p = jax.vmap(decoder)(z)
+    
+    #Truncated Segment Length
+    l = p[0].shape[2]
 
     #Compute the probablity of the data given the latent sample
-    log_p = gaussian_log_probabilty(p, data)
+    log_p = gaussian_log_probabilty(p, data[:,:,-l:])
 
     #Maximise p assigned to data, minimize KL div
-    loss = sum(map(jnp.sum,[-log_p, kl]))/(data.size)
+    loss = sum(map(jnp.sum,[-log_p, kl[:,:,-l:]]))/(log_p.size)
 
     return loss
 
@@ -248,7 +266,7 @@ def train(args):
         os.makedirs(CHECKPOINT_DIR)
 
     key = jax.random.PRNGKey(42)
-    init_key, state_key, sample_key = jax.random.split(key,3)
+    init_key, state_key = jax.random.split(key,2)
     
     vae = make_vae(N_LATENT, K, init_key)
     
@@ -264,7 +282,7 @@ def train(args):
         init_i = args.checkpoint
     
     with open("loss.txt","w") as f:
-        with frame_extractor.FrameExtractor(VIDEO_PATH, BS, key) as fe:
+        with frame_extractor.FrameExtractor(VIDEO_PATH, BS, SEGMENT_LENGTH, key) as fe:
             for i in tqdm.tqdm(range(init_i,N_ITER)):
                 data = jnp.array(next(fe),dtype=jnp.float32)
                 loss,state = update_state(state, data, optimizer, vae_loss)
