@@ -7,10 +7,23 @@ import optax
 import matplotlib.pyplot as plt
 import cv2
 import tqdm
+import pickle
+import os
+import argparse
 
 import functools
 
 import frame_extractor
+
+LR = 5e-5
+CLIP_NORM = 30
+N_LATENT = 2048
+VIDEO_PATH = "recording/video.avi"
+BS = 64
+K = 3
+N_ITER = 300000
+CHECKPOINT_EVERY = 2000
+CHECKPOINT_DIR = 'checkpoints'
 
 class ConvResBlock(eqx.Module):
     inp_layer: eqx.nn.Conv
@@ -35,23 +48,23 @@ class VAEEncoder(eqx.Module):
     #Maps from image to latents
     conv_layers: list
     mean_output: eqx.nn.Linear 
-    def __init__(self, n_latent, key):
+    def __init__(self, n_latent, k, key):
         keys = jax.random.split(key, 12) 
         self.conv_layers = [
-            eqx.nn.Conv(num_spatial_dims=2, in_channels=3, out_channels=8, kernel_size=(2,2), stride=2,key=keys[0]),
-            ConvResBlock(8,key=keys[1]),
-            eqx.nn.Conv(num_spatial_dims=2, in_channels=8, out_channels=16, kernel_size=(2,2), stride=2,key=keys[2], padding=[(0,0),(1,1)]),
-            ConvResBlock(16,key=keys[3]),
-            eqx.nn.Conv(num_spatial_dims=2, in_channels=16, out_channels=32, kernel_size=(2,2), stride=2,key=keys[4]),
-            ConvResBlock(32,key=keys[5]),
-            eqx.nn.Conv(num_spatial_dims=2, in_channels=32, out_channels=64, kernel_size=(2,2), stride=2,key=keys[6], padding=[(0,0),(1,1)]),
-            ConvResBlock(64,key=keys[7]),
-            eqx.nn.Conv(num_spatial_dims=2, in_channels=64, out_channels=128, kernel_size=(2,2), stride=2,key=keys[8]),
-            ConvResBlock(128,key=keys[8]),
-            eqx.nn.Conv(num_spatial_dims=2, in_channels=128, out_channels=256, kernel_size=(2,2), stride=2,key=keys[9]),
-            ConvResBlock(256,key=keys[10])
+            eqx.nn.Conv(num_spatial_dims=2, in_channels=3, out_channels=8*k, kernel_size=(2,2), stride=2,key=keys[0]),
+            ConvResBlock(8*k,key=keys[1]),
+            eqx.nn.Conv(num_spatial_dims=2, in_channels=8*k, out_channels=16*k, kernel_size=(2,2), stride=2,key=keys[2], padding=[(0,0),(1,1)]),
+            ConvResBlock(16*k,key=keys[3]),
+            eqx.nn.Conv(num_spatial_dims=2, in_channels=16*k, out_channels=32*k, kernel_size=(2,2), stride=2,key=keys[4]),
+            ConvResBlock(32*k,key=keys[5]),
+            eqx.nn.Conv(num_spatial_dims=2, in_channels=32*k, out_channels=64*k, kernel_size=(2,2), stride=2,key=keys[6], padding=[(0,0),(1,1)]),
+            ConvResBlock(64*k,key=keys[7]),
+            eqx.nn.Conv(num_spatial_dims=2, in_channels=64*k, out_channels=128*k, kernel_size=(2,2), stride=2,key=keys[8]),
+            ConvResBlock(128*k,key=keys[8]),
+            eqx.nn.Conv(num_spatial_dims=2, in_channels=128*k, out_channels=256*k, kernel_size=(2,2), stride=2,key=keys[9]),
+            ConvResBlock(256*k,key=keys[10])
         ]
-        self.mean_output = eqx.nn.Linear(10240, n_latent, key=keys[11])
+        self.mean_output = eqx.nn.Linear(10240*k, n_latent, key=keys[11])
 
     def __call__(self,x):
         h = (x/256)-0.5
@@ -67,32 +80,32 @@ class VAEDecoder(eqx.Module):
     conv_layers: list
     mean_output: eqx.nn.Conv
     log_var_output: eqx.nn.Conv
-    def __init__(self, n_latent, key):
+    def __init__(self, n_latent, k, key):
         keys = jax.random.split(key, 14) 
-        self.input_layer = eqx.nn.Linear(n_latent, 10240,key=keys[11])
+        self.input_layer = eqx.nn.Linear(n_latent, 10240*k, key=keys[11])
         self.conv_layers = [
-            ConvResBlock(256,key=keys[10]),
-            eqx.nn.ConvTranspose(num_spatial_dims=2, in_channels=256, out_channels=128, kernel_size=(2,2), stride=2,key=keys[9]),
-            ConvResBlock(128,key=keys[8]),
-            eqx.nn.ConvTranspose(num_spatial_dims=2, in_channels=128, out_channels=64, kernel_size=(2,2), stride=2,key=keys[8]),
-            ConvResBlock(64,key=keys[7]),
-            eqx.nn.ConvTranspose(num_spatial_dims=2, in_channels=64, out_channels=32, kernel_size=(2,2), stride=2,key=keys[6], padding=[(0,0),(1,1)]),
-            ConvResBlock(32,key=keys[5]),
-            eqx.nn.ConvTranspose(num_spatial_dims=2, in_channels=32, out_channels=16, kernel_size=(2,2), stride=2,key=keys[4]),
-            ConvResBlock(16,key=keys[3]),
-            eqx.nn.ConvTranspose(num_spatial_dims=2, in_channels=16, out_channels=8, kernel_size=(2,2), stride=2,key=keys[2], padding=[(0,0),(1,1)]),
-            ConvResBlock(8,key=keys[1]),
-            eqx.nn.ConvTranspose(num_spatial_dims=2, in_channels=8, out_channels=8, kernel_size=(2,2), stride=2,key=keys[0]),
+            ConvResBlock(256*k,key=keys[10]),
+            eqx.nn.ConvTranspose(num_spatial_dims=2, in_channels=256*k, out_channels=128*k, kernel_size=(2,2), stride=2,key=keys[9]),
+            ConvResBlock(128*k,key=keys[8]),
+            eqx.nn.ConvTranspose(num_spatial_dims=2, in_channels=128*k, out_channels=64*k, kernel_size=(2,2), stride=2,key=keys[8]),
+            ConvResBlock(64*k,key=keys[7]),
+            eqx.nn.ConvTranspose(num_spatial_dims=2, in_channels=64*k, out_channels=32*k, kernel_size=(2,2), stride=2,key=keys[6], padding=[(0,0),(1,1)]),
+            ConvResBlock(32*k,key=keys[5]),
+            eqx.nn.ConvTranspose(num_spatial_dims=2, in_channels=32*k, out_channels=16*k, kernel_size=(2,2), stride=2,key=keys[4]),
+            ConvResBlock(16*k,key=keys[3]),
+            eqx.nn.ConvTranspose(num_spatial_dims=2, in_channels=16*k, out_channels=8*k, kernel_size=(2,2), stride=2,key=keys[2], padding=[(0,0),(1,1)]),
+            ConvResBlock(8*k,key=keys[1]),
+            eqx.nn.ConvTranspose(num_spatial_dims=2, in_channels=8*k, out_channels=8*k, kernel_size=(2,2), stride=2,key=keys[0]),
         ]
-        self.mean_output = eqx.nn.Conv(num_spatial_dims=2, in_channels=8, out_channels=3, kernel_size=(1,1), key=keys[12])
-        self.log_var_output = eqx.nn.Conv(num_spatial_dims=2, in_channels=8, out_channels=3, kernel_size=(1,1), key=keys[13])
+        self.mean_output = eqx.nn.Conv(num_spatial_dims=2, in_channels=8*k, out_channels=3, kernel_size=(1,1), key=keys[12])
+        self.log_var_output = eqx.nn.Conv(num_spatial_dims=2, in_channels=8*k, out_channels=3, kernel_size=(1,1), key=keys[13])
 
     def __call__(self,x):
-        h = self.input_layer(x).reshape(256,8,5)
+        h = self.input_layer(x).reshape(-1,8,5)
         for layer in self.conv_layers:
             h = layer(h)
         mean = (self.mean_output(h)+0.5)*128
-        log_var = self.log_var_output(h)+2
+        log_var = self.log_var_output(h)+3
         return mean, log_var
 
 #Gaussian VAE primitives
@@ -144,10 +157,10 @@ def vae_loss(vae, data, key):
 
     return loss
 
-def make_vae(n_latent, key):
+def make_vae(n_latent, k, key):
     enc_key, dec_key = jax.random.split(key)
-    e = VAEEncoder(2048, enc_key)
-    d = VAEDecoder(2048, dec_key)
+    e = VAEEncoder(n_latent, k, enc_key)
+    d = VAEDecoder(n_latent, k, dec_key)
     
     vae = e,d
     return vae
@@ -181,44 +194,89 @@ def show_sample(x):
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
-def data_generator(key):
-    while(True):
-        yield jax.random.normal(key,(1,3,512,300))
+def save_checkpoint(state, iteration, ckpt_dir):
+    filename = f'checkpoint_{iteration}.pkl'
+    filepath = os.path.join(ckpt_dir, filename)
+    with open(filepath, 'wb') as f:
+        pickle.dump(state, f)
 
+def load_checkpoint(iteration, ckpt_dir):
+    filename = f'checkpoint_{iteration}.pkl'
+    filepath = os.path.join(ckpt_dir, filename)
+    with open(filepath, 'rb') as f:
+        return pickle.load(f)
 
-def main():
-    LR = 0.001
-    N_LATENT = 2048
-    VIDEO_PATH = "recording/video.avi"
-    BS = 16
+def parse_args():
+    parser = argparse.ArgumentParser(description='Train VAE model.')
+    subparsers = parser.add_subparsers()
+    
+    #Training arguments
+    train_parser = subparsers.add_parser('train')
+    train_parser.set_defaults(func=train)
+    train_parser.add_argument('--checkpoint', type=int, default=None,
+                        help='Checkpoint iteration to load state from.')
+    
+    #Sampling arguments
+    sample_parser = subparsers.add_parser('sample')
+    sample_parser.set_defaults(func=sample)
+    sample_parser.add_argument('--checkpoint', type=int,
+                        help='Checkpoint iteration to load state from.')
+    
+    sample_parser.add_argument('--checkpoint_dir', type=str, default=None,
+                        help='Checkpoint directory')
+    
+    args = parser.parse_args()
+    return args
+
+def sample(args):
+    if args.checkpoint_dir is None:
+        ckpt_dir = CHECKPOINT_DIR
+    else:
+        ckpt_dir = args.checkpoint_dir
+    state = load_checkpoint(args.checkpoint, ckpt_dir)
+    trained_vae = state[0]
 
     key = jax.random.PRNGKey(42)
-    data_key, init_key, state_key, sample_key = jax.random.split(key,4)
-    
-    vae = make_vae(N_LATENT, init_key)
-    
-    optimizer = optax.adam(LR)
-    opt_state = optimizer.init(vae)
-    
-    state = vae, opt_state, state_key
+    samples = sample_vae(N_LATENT, 10, trained_vae, key)
+    for sample in samples:
+        show_sample(sample)
 
-    dg = data_generator(data_key)
+
+def train(args):
+
+    if not os.path.exists(CHECKPOINT_DIR):
+        os.makedirs(CHECKPOINT_DIR)
+
+    key = jax.random.PRNGKey(42)
+    init_key, state_key, sample_key = jax.random.split(key,3)
+    
+    vae = make_vae(N_LATENT, K, init_key)
+    
+    adam_optimizer = optax.adam(LR)
+    optimizer = optax.chain(adam_optimizer, optax.zero_nans(), optax.clip_by_global_norm(CLIP_NORM))
+
+    opt_state = optimizer.init(vae)
+
+    state = vae, opt_state, state_key
+    init_i = 0
+    if args.checkpoint is not None:
+        state = load_checkpoint(args.checkpoint, CHECKPOINT_DIR)
+        init_i = args.checkpoint
     
     with open("loss.txt","w") as f:
         with frame_extractor.FrameExtractor(VIDEO_PATH, BS, key) as fe:
-            for i in tqdm.tqdm(range(5000)):
+            for i in tqdm.tqdm(range(init_i,N_ITER)):
                 data = jnp.array(next(fe),dtype=jnp.float32)
                 loss,state = update_state(state, data, optimizer, vae_loss)
                 f.write(f"{loss}\n")
                 f.flush()
-            
     
-    trained_vae = state[0]
+                if i % CHECKPOINT_EVERY == 0:
+                    save_checkpoint(state, i, CHECKPOINT_DIR)
 
-    samples = sample_vae(N_LATENT, 10, trained_vae, sample_key)
-    for sample in samples:
-        show_sample(sample)
-
+def main():
+    args = parse_args()
+    args.func(args)
 
 if __name__ == "__main__":
     main()
