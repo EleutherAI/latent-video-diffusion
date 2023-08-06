@@ -213,13 +213,13 @@ def show_sample(x):
     cv2.destroyAllWindows()
 
 def save_checkpoint(state, iteration, ckpt_dir):
-    filename = f'checkpoint_{iteration}.pkl'
+    filename = f'vae_checkpoint_{iteration}.pkl'
     filepath = os.path.join(ckpt_dir, filename)
     with open(filepath, 'wb') as f:
         pickle.dump(state, f)
 
 def load_checkpoint(iteration, ckpt_dir):
-    filename = f'checkpoint_{iteration}.pkl'
+    filename = f'vae_checkpoint_{iteration}.pkl'
     filepath = os.path.join(ckpt_dir, filename)
     with open(filepath, 'rb') as f:
         return pickle.load(f)
@@ -253,7 +253,6 @@ def sample(args):
         ckpt_dir = args.checkpoint_dir
     state = load_checkpoint(args.checkpoint, ckpt_dir)
     trained_vae = state[0]
-
     key = jax.random.PRNGKey(42)
     samples = sample_vae(N_LATENT, 10, trained_vae, key)
     for sample in samples:
