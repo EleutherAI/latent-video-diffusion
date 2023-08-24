@@ -1,0 +1,21 @@
+{
+  "seed": 42,
+  "lvm": {
+    "n_latent": 512
+  },
+  "vae": {
+    "size_multiplier": 1,
+    "sample": {
+      "n_sample": 10
+    },
+    "train": {
+      "ckpt_dir": "checkpoints",
+      "lr": 0.00005,
+      "ckpt_interval": 2000,
+      "data_dir": "data/recording",
+      "bs": 64,
+      "metrics_path": "logs/loss.txt"
+    }
+  }
+}
+
