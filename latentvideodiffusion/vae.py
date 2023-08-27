@@ -1,5 +1,10 @@
 import jax
 import jax.numpy as jnp
+import optax
+
+import latentvideodiffusion as lvd
+import latentvideodiffusion.models.frame_vae as frame_vae
+import latentvideodiffusion.frame_extractor
 
 #Gaussian VAE primitives
 def gaussian_kl_divergence(p, q):
@@ -52,8 +57,8 @@ def vae_loss(vae, data, key):
 
 def make_vae(n_latent, size_multipier, key):
     enc_key, dec_key = jax.random.split(key)
-    e = VAEEncoder(n_latent, size_multipier, enc_key)
-    d = VAEDecoder(n_latent, size_multipier, dec_key)
+    e = frame_vae.VAEEncoder(n_latent, size_multipier, enc_key)
+    d = frame_vae.VAEDecoder(n_latent, size_multipier, dec_key)
     
     vae = e,d
     return vae
@@ -96,7 +101,7 @@ def parse_args():
     args = parser.parse_args()
     return args
 
-def sample(args cfg):
+def sample(args, cfg):
     n_samples = cfg["vae"]["sample"]["n_sample"]
     n_latent = cfg["lvm"]["n_latent"]
 
@@ -113,12 +118,13 @@ def train(args, cfg):
     ckpt_interval = cfg["vae"]["train"]["ckpt_interval"]
     video_paths = cfg["vae"]["train"]["data_dir"]
     batch_size = cfg["vae"]["train"]["bs"]
+    clip_norm = cfg["vae"]["train"]["clip_norm"]
     metrics_path = cfg["vae"]["train"]["metrics_path"]
     
     adam_optimizer = optax.adam(lr)
-    optimizer = optax.chain(adam_optimizer, optax.zero_nans(), optax.clip_by_global_norm(CLIP_NORM))
+    optimizer = optax.chain(adam_optimizer, optax.zero_nans(), optax.clip_by_global_norm(clip_norm))
     
-    if args.checkpoint is None
+    if args.checkpoint is None:
         key = jax.random.PRNGKey(cfg["seed"])
         init_key, state_key = jax.random.split(key)
         vae = make_vae(cfg["lvm"]["n_latent"], cfg["vae"]["size_multiplier"], init_key)
@@ -131,13 +137,13 @@ def train(args, cfg):
     
     with open(metrics_path,"w") as f:
         #TODO: Fix Frame extractor rng
-        with lvd.frame_extractor.FrameExtractor(video_paths, batch_size, state[3]) as fe:
-            while lvd.utils.tqdm_inf():
+        with lvd.frame_extractor.FrameExtractor(video_paths, batch_size, state[2]) as fe:
+            while lvd.utils.tqdm_inf:
                 data = jnp.array(next(fe),dtype=jnp.float32)
-                loss, state = lvm.utils.update_state(state, data, optimizer, vae_loss)
+                loss, state = lvd.utils.update_state(state, data, optimizer, vae_loss)
                 f.write(f"{loss}\n")
                 f.flush()
                 iteration = state[3]
                 if (iteration % ckpt_interval) == (ckpt_interval - 1):
-                    ckpt_path = lvd.utils.ckpt_path = (ckpt_dir, iteration+1, "vae")
+                    ckpt_path = lvd.utils.ckpt_path(ckpt_dir, iteration+1, "vae")
                     lvd.utils.save_checkpoint(state, ckpt_path)

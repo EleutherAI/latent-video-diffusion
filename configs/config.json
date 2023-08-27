@@ -11,10 +11,11 @@
     "train": {
       "ckpt_dir": "checkpoints",
       "lr": 0.00005,
-      "ckpt_interval": 2000,
+      "ckpt_interval": 2,
       "data_dir": "data/recording",
       "bs": 64,
-      "metrics_path": "logs/loss.txt"
+      "metrics_path": "logs/loss.txt",
+      "clip_norm": 10
     }
   }
 }

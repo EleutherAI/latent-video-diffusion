@@ -2,6 +2,9 @@ import jax
 import jax.numpy as jnp
 import equinox as eqx
 
+import latentvideodiffusion as lvd
+import latentvideodiffusion.frame_transcode
+
 N_ITER = 1000
 LR = 0.0003
 B1 = 0.9
@@ -97,45 +100,72 @@ def update_state(state, data, optimizer, loss_fn):
     
     return loss,new_state
 
-def toy_data():
-    key = jax.random.PRNGKey(42)
-    x_noise = 0.05*jax.random.normal(key,shape=(128,50,2))
-    y_noise = 0.05*jax.random.normal(key,shape=(128,50,2))
-    x = jnp.array([[1,1],[-1,-1]]*25)+x_noise
-    y = jnp.array([[1,1],[-1,-1]]*25)+y_noise
-    return (x,y)
+def sample(args, cfg):
+    n_samples = cfg["dt"]["sample"]["n_sample"]
+    n_latent = cfg["lvm"]["n_latent"]
 
-def main():
-    data = toy_data()
+    vae_state = lvd.utils.load_checkpoint(args.vae_checkpoint)
+    trained_vae = vae_state[0]
+    m_encoder, m_decoder = map(lambda x: jax.vmap(jax.vmap(x)), trained_vae)
     
-    key = jax.random.PRNGKey(42)
-    init_key, state_key, sample_key = jax.random.split(key,3)
+    vae_state = lvd.utils.load_checkpoint(args.diffusion_checkpoint)
+    trained_dt = vae_state[0]
+
+    key = jax.random.PRNGKey(cfg["seed"])
+
+    dt_sample_key, encode_sample_key, decode_sample_key = jax.random.split(key, 3)
+
+    prompt_frames = get_prompt_frames(args.vid_prompts)
+    prompt_latents = m_encoder(prompt_frames)
+    prompt_samples = lvd.vae.sample_gaussian(prompt_latents, encode_sample_key)
+
+    latent_continuations = sample_diffusion(prompt_samples, trained_dt, f_neg_gamma, dt_sample_key, n_steps, shape)
+
+    continuation_frames = m_decoder(latent_continuations)
     
-    model = LatentVideoTransformer(init_key, N_LAYERS, D_IO, D_L, D_MLP, N_Q, D_QK, D_DV)
+    lvd.utils.show_samples(samples)
 
-    optimizer = optax.adam(LR, b1=B1)
-    opt_state = optimizer.init(model)
+def train(args, cfg):
+    key = jax.random.PRNGKey(cfg["seed"])
+    ckpt_dir = cfg["dt"]["train"]["ckpt_dir"]
+    lr = cfg["dt"]["train"]["lr"]
+    ckpt_interval = cfg["dt"]["train"]["ckpt_interval"]
+    latent_paths = cfg["dt"]["train"]["data_dir"]
+    batch_size = cfg["dt"]["train"]["bs"]
+    clip_norm = cfg["dt"]["train"]["clip_norm"]
+    metrics_path = cfg["dt"]["train"]["metrics_path"]
 
-    state = model, opt_state, state_key
+    n_layers = cfg["dt"]["n_layers"]
+    d_io = cfg["dt"]["d_io"]
+    d_l = cfg["dt"]["d_mlp"]
+    n_q = cfg["dt"]["n_q"]
+    d_qk = cfg["dt"]["d_qk"]
+    d_dv = cfg["dt"]["d_dv"]
     
-    loss_fn = lambda x,y,z: diffusion_loss(x, y, f_neg_gamma, z)
-
-    for i in range(N_ITER):
-        loss, state = update_state(state, data, optimizer, loss_fn)
-        if i % 1 == 0:
-            print(i,loss)
-
-    trained_model = state[0]
-
-    n_samples = 128 
-    n_steps = 20 
-    shape = (50,2)
-    samples = sample_diffusion(data[0], trained_model, f_neg_gamma, sample_key, n_steps, shape)
-    for i in range(2):
-        plt.scatter(samples[:,i,0],samples[:,i,1])
-        plt.scatter(data[1][:,i,0],data[1][:,i,1])
-        plt.show()
+    adam_optimizer = optax.adam(lr)
+    optimizer = optax.chain(adam_optimizer, optax.zero_nans(), optax.clip_by_global_norm(clip_norm))
     
+    if args.checkpoint is None:
+        key = jax.random.PRNGKey(cfg["seed"])
+        init_key, state_key = jax.random.split(key)
+        model = LatentVideoTransformer(init_key, n_layers, d_io, d_l, d_mlp, n_q, d_qk, d_dv)
+        opt_state = optimizer.init(model)
+        i = 0
+        state = vae, opt_state, state_key, i
+    else:
+        checkpoint_path = "dt"
+        state = lvd.utils.load_checkpoint(checkpoint_path)
+    
+    with open(metrics_path,"w") as f:
+        #TODO: Fix Frame extractor rng
+        with lvd.frame_transcode.LatentDataset(video_paths, batch_size, state[2]) as ld:
+            while lvd.utils.tqdm_inf:
+                data = jnp.array(next(ld),dtype=jnp.float32)
+                loss, state = lvd.utils.update_state(state, data, optimizer, vae_loss)
+                f.write(f"{loss}\n")
+                f.flush()
+                iteration = state[3]
+                if (iteration % ckpt_interval) == (ckpt_interval - 1):
+                    ckpt_path = lvd.utils.ckpt_path(ckpt_dir, iteration+1, "vae")
+                    lvd.utils.save_checkpoint(state, ckpt_path)
 
-if __name__ == "__main__":
-    main()
