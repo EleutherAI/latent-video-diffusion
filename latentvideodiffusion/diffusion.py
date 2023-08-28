@@ -114,7 +114,10 @@ def sample_datapoint(data, key):
 
 def sample(args, cfg):
     n_samples = cfg["dt"]["sample"]["n_sample"]
+    n_steps = cfg["dt"]["sample"]["n_steps"]
     n_latent = cfg["lvm"]["n_latent"]
+    l_x = cfg["dt"]["l_x"]
+    l_y = cfg["dt"]["l_y"]
 
     vae_state = lvd.utils.load_checkpoint(args.vae_checkpoint)
     trained_vae = vae_state[0]
@@ -125,17 +128,20 @@ def sample(args, cfg):
 
     key = jax.random.PRNGKey(cfg["seed"])
 
-    dt_sample_key, encode_sample_key, decode_sample_key = jax.random.split(key, 3)
+    data_key, dt_sample_key, encode_sample_key, decode_sample_key = jax.random.split(key, 4)
 
-    prompt_frames = get_prompt_frames(args.vid_prompts)
-    prompt_latents = m_encoder(prompt_frames)
-    prompt_samples = lvd.vae.sample_gaussian(prompt_latents, encode_sample_key)
+    with lvd.latent_dataset.LatentDataset(data_directory=args.data_dir, 
+        batch_size=n_samples, prompt_length=l_x, completion_length=l_y) as ld:
+        prompt_samples, completion_samples = sample_datapoint(next(ld), data_key)
 
-    latent_continuations = sample_diffusion(prompt_samples, trained_dt, f_neg_gamma, dt_sample_key, n_steps, shape)
+    latent_continuations = sample_diffusion(prompt_samples, trained_dt, f_neg_gamma, dt_sample_key, n_steps, completion_samples.shape[1:])
 
-    continuation_frames = m_decoder(latent_continuations)
+    continuation_frames = lvd.vae.sample_gaussian(m_decoder(latent_continuations), decode_sample_key)
+    print(continuation_frames.shape)
     
-    lvd.utils.show_samples(samples)
+    for sample in continuation_frames:
+        print(sample.shape)
+        lvd.utils.show_samples(sample)
 
 def train(args, cfg):
     key = jax.random.PRNGKey(cfg["seed"])

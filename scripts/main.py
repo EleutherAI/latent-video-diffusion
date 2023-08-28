@@ -34,8 +34,8 @@ def parse_args():
                                  help='VAE checkpoint iteration to load state from.')
     sample_diffusion_parser.add_argument('--diffusion_checkpoint', type=str, required=True,
                                  help='Diffusion Transformer checkpoint iteration to load state from.')
-    sample_diffusion_parser.add_argument('--vid_prompts', type=str, required=True,
-                                 help='Directory with video prompts')
+    sample_diffusion_parser.add_argument('--data_dir', type=str, required=True,
+                                 help='Directory with video latents')
     
     # Sampling arguments for VAE
     sample_vae_parser = subparsers.add_parser('sample_vae')

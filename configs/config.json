@@ -31,7 +31,8 @@
     "l_x": 32,
     "l_y": 16,
     "sample": {
-      "n_sample": 10
+      "n_sample": 10,
+      "n_steps": 10
     },
     "train": {
       "ckpt_dir": "checkpoints",
