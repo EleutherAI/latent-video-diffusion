@@ -8,6 +8,8 @@ import cv2
 import jax
 import equinox as eqx
 import numpy as np
+import jax.numpy as jnp
+
 
 def ckpt_path(ckpt_dir,iteration, ckpt_type):
     filename = f'checkpoint_{ckpt_type}_{iteration}.pkl'
@@ -70,9 +72,73 @@ def tqdm_inf():
   while True:
     yield
 
+        
 def encode_frames(args, cfg):
-    pass
+    input_directory = args.input_dir
+    output_directory = args.output_dir
+    vae_checkpoint_path = args.vae_checkpoint
 
-def generate(args, cfg):
-    pass
+    def encode_frame(encoder, frame):
+        frame = frame.transpose(2, 1, 0)
+        encoded_frame = encoder(frame)
+        return encoded_frame
+
+    def encode_frames_batch(encoder, frames_batch):
+        encoded_batch = jax.vmap(functools.partial(encode_frame, encoder))(frames_batch)
+        return encoded_batch
+
+    vae = load_checkpoint(vae_checkpoint_path)
+    encoder = vae[0][0]
+
+    video_files = [f for f in os.listdir(input_directory) if f.endswith(('.mp4', '.avi'))]
+
+    # Create output directory if it doesn't exist
+    os.makedirs(output_directory, exist_ok=True)
+
+    for filename in video_files:
+        file_base = os.path.splitext(filename)[0]
+        vid_path = os.path.join(input_directory, filename)
+        cap = cv2.VideoCapture(vid_path)
+
+        # Initialize separate lists to hold original and encoded frames
+        original_frames = []
+        encoded_frames_1 = []
+        encoded_frames_2 = []
+
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            original_frames.append(frame)
+
+            if len(original_frames) == cfg["transcode"]["bs"]:
+                encoded_batch_1, encoded_batch_2 = encode_frames_batch(encoder, jnp.array(original_frames))
+                
+                encoded_frames_1.extend(encoded_batch_1.tolist())
+                encoded_frames_2.extend(encoded_batch_2.tolist())
+
+                original_frames.clear()
+
+        cap.release()
+
+        # Process any remaining frames
+        if original_frames:
+            encoded_batch_1, encoded_batch_2 = encode_frames_batch(encoder, jnp.array(original_frames))
+            
+            encoded_frames_1.extend(encoded_batch_1.tolist())
+            encoded_frames_2.extend(encoded_batch_2.tolist())
+
+        # Convert lists to NumPy arrays
+        encoded_frames_array_1 = np.array(encoded_frames_1)
+        encoded_frames_array_2 = np.array(encoded_frames_2)
+
+        # Aggregate into a big tuple
+        latents = (encoded_frames_array_1, encoded_frames_array_2)
+
+        output_path = os.path.join(output_directory, f"{file_base}_encoded.pkl")
+
+        # Save using pickle
+        with open(output_path, 'wb') as f:
+            pickle.dump(latents, f)
 
