@@ -1,0 +1,48 @@
+{
+  "seed": 42,
+  "lvm": {
+    "n_latent": 128
+  },
+  "transcode": {
+    "bs":16
+  },
+  "vae": {
+    "size_multiplier": 1,
+    "sample": {
+      "n_sample": 10
+    },
+    "train": {
+      "ckpt_dir": "checkpoints",
+      "lr": 0.00005,
+      "ckpt_interval": 2,
+      "data_dir": "data/recording",
+      "bs": 64,
+      "metrics_path": "logs/loss.txt",
+      "clip_norm": 10
+    }
+  },
+  "dt": {
+    "n_layers": 3, 
+    "d_l": 128, 
+    "d_mlp": 128, 
+    "n_q": 1, 
+    "d_qk": 32, 
+    "d_dv": 64, 
+    "l_x": 32,
+    "l_y": 16,
+    "sample": {
+      "n_sample": 10,
+      "n_steps": 10
+    },
+    "train": {
+      "ckpt_dir": "checkpoints",
+      "lr": 0.00005,
+      "ckpt_interval": 2,
+      "data_dir": "data/recording",
+      "bs": 64,
+      "metrics_path": "logs/loss.txt",
+      "clip_norm": 10
+    }
+  }
+}
+
