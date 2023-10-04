@@ -1,2 +1,2 @@
-# minetest-mbrl
-Model based reinforcement learning in the minetester environment
+# lvd
+Latent video diffusion
