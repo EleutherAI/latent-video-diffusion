@@ -119,29 +119,32 @@ def sample(args, cfg):
     l_x = cfg["dt"]["l_x"]
     l_y = cfg["dt"]["l_y"]
 
-    vae_state = lvd.utils.load_checkpoint(args.vae_checkpoint)
-    trained_vae = vae_state[0]
-    m_encoder, m_decoder = map(lambda x: jax.vmap(jax.vmap(x)), trained_vae)
-    
-    vae_state = lvd.utils.load_checkpoint(args.diffusion_checkpoint)
-    trained_dt = vae_state[0]
+    with jax.default_device(jax.devices("cpu")[0]):
 
-    key = jax.random.PRNGKey(cfg["seed"])
+        vae_state = lvd.utils.load_checkpoint(args.vae_checkpoint)
+        trained_vae = vae_state[0]
+        m_encoder, m_decoder = map(lambda x: jax.vmap(jax.vmap(x)), trained_vae)
 
-    data_key, dt_sample_key, encode_sample_key, decode_sample_key = jax.random.split(key, 4)
+        dt_state = lvd.utils.load_checkpoint(args.diffusion_checkpoint)
+        trained_dt = dt_state[0]
 
-    with lvd.latent_dataset.LatentDataset(data_directory=args.data_dir, 
-        batch_size=n_samples, prompt_length=l_x, completion_length=l_y) as ld:
-        prompt_samples, completion_samples = sample_datapoint(next(ld), data_key)
 
-    latent_continuations = sample_diffusion(prompt_samples, trained_dt, f_neg_gamma, dt_sample_key, n_steps, completion_samples.shape[1:])
+        key = jax.random.PRNGKey(cfg["seed"])
 
-    continuation_frames = lvd.vae.sample_gaussian(m_decoder(latent_continuations), decode_sample_key)
-    print(continuation_frames.shape)
-    
-    for sample in continuation_frames:
-        print(sample.shape)
-        lvd.utils.show_samples(sample)
+        data_key, dt_sample_key, encode_sample_key, decode_sample_key = jax.random.split(key, 4)
+
+        with lvd.latent_dataset.LatentDataset(data_directory=args.data_dir, 
+            batch_size=n_samples, prompt_length=l_x, completion_length=l_y) as ld:
+            prompt_samples, completion_samples = sample_datapoint(next(ld), data_key)
+
+        latent_continuations = sample_diffusion(prompt_samples, trained_dt, f_neg_gamma, dt_sample_key, n_steps, completion_samples.shape[1:])
+
+        continuation_frames = lvd.vae.sample_gaussian(m_decoder(latent_continuations), decode_sample_key)
+        print(continuation_frames.shape)
+        
+        for sample in continuation_frames:
+            print(sample.shape)
+            lvd.utils.show_samples(sample)
 
 def train(args, cfg):
     key = jax.random.PRNGKey(cfg["seed"])
@@ -182,7 +185,7 @@ def train(args, cfg):
         #TODO: Fix LatentDataset RNG
         with lvd.latent_dataset.LatentDataset(data_directory=args.data_dir, 
             batch_size=batch_size, prompt_length=l_x, completion_length=l_y) as ld:
-            while lvd.utils.tqdm_inf:
+            for _ in lvd.utils.tqdm_inf():
                 data = sample_datapoint(next(ld),state[2])
                 loss, state = lvd.utils.update_state(state, data, optimizer, loss_fn)
                 f.write(f"{loss}\n")
