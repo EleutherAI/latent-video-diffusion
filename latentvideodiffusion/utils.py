@@ -67,11 +67,11 @@ def update_state(state, data, optimizer, loss_fn):
     
     return loss,new_state
 
-@tqdm.tqdm
 def tqdm_inf():
-  while True:
-    yield
-
+    def g():
+      while True:
+        yield
+    return tqdm.tqdm(g())
         
 def encode_frames(args, cfg):
     input_directory = args.input_dir

@@ -25,8 +25,9 @@ class VAEEncoder(eqx.Module):
     #Maps from image to latents
     conv_layers: list
     mean_output: eqx.nn.Linear 
+    log_var_output: eqx.nn.Linear
     def __init__(self, n_latent, k, key):
-        keys = jax.random.split(key, 12) 
+        keys = jax.random.split(key, 13) 
         self.conv_layers = [
             eqx.nn.Conv(num_spatial_dims=2, in_channels=3, out_channels=8*k, kernel_size=(2,2), stride=2,key=keys[0]),
             ConvResBlock(8*k,key=keys[1]),
@@ -42,13 +43,14 @@ class VAEEncoder(eqx.Module):
             ConvResBlock(256*k,key=keys[10])
         ]
         self.mean_output = eqx.nn.Linear(10240*k, n_latent, key=keys[11])
+        self.log_var_output = eqx.nn.Linear(10240*k, n_latent, key=keys[12])
 
     def __call__(self,x):
         h = (x/256)-0.5
         for layer in self.conv_layers:
             h = layer(h)
         mean = self.mean_output(h.reshape(-1))
-        log_var = jnp.zeros_like(mean)-3
+        log_var = -(jnp.abs(self.log_var_output(h.reshape(-1)))+2)
         return mean, log_var
 
 class VAEDecoder(eqx.Module): 

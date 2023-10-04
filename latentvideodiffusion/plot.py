@@ -2,6 +2,15 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.signal import butter, filtfilt
 
+def plot_loss(args, cfg):
+    if args.type == "vae":
+        metrics_path = cfg["vae"]["train"]["metrics_path"]
+    elif args.type == "dt":
+        metrics_path = cfg["dt"]["train"]["metrics_path"]
+    else:
+        print("Invalid type specified")
+    plot_data_and_filtered(metrics_path)
+
 def plot_data_and_filtered(file_path):
     # Read the data from the file
     with open(file_path, 'r') as file:
@@ -22,7 +31,3 @@ def plot_data_and_filtered(file_path):
     plt.legend(loc='upper right')
     plt.tight_layout()
     plt.show()
-
-
-# Test the function
-plot_data_and_filtered('loss.txt')

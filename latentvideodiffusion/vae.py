@@ -1,3 +1,5 @@
+import os
+
 import jax
 import jax.numpy as jnp
 import optax
@@ -132,13 +134,17 @@ def train(args, cfg):
         i = 0
         state = vae, opt_state, state_key, i
     else:
-        checkpoint_path = "vae"
+        checkpoint_path = args.checkpoint
         state = lvd.utils.load_checkpoint(checkpoint_path)
     
+    dir_name = os.path.dirname(metrics_path)
+    if not os.path.exists(dir_name):
+        os.makedirs(dir_name)
+
     with open(metrics_path,"w") as f:
         #TODO: Fix Frame extractor rng
         with lvd.frame_extractor.FrameExtractor(video_paths, batch_size, state[2]) as fe:
-            while lvd.utils.tqdm_inf:
+            for _ in lvd.utils.tqdm_inf():
                 data = jnp.array(next(fe),dtype=jnp.float32)
                 loss, state = lvd.utils.update_state(state, data, optimizer, vae_loss)
                 f.write(f"{loss}\n")

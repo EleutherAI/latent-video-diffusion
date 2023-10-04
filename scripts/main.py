@@ -4,6 +4,7 @@ import latentvideodiffusion as lvd
 import latentvideodiffusion.utils
 import latentvideodiffusion.vae
 import latentvideodiffusion.diffusion
+import latentvideodiffusion.plot
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train and Generate Visualizations using VAE and Diffusion Transformer.')
@@ -24,8 +25,6 @@ def parse_args():
     train_vae_parser.set_defaults(func=train_vae)
     train_vae_parser.add_argument('--checkpoint', type=str, default=None,
                                   help='Checkpoint iteration to load state from.')
-    train_vae_parser.add_argument('--data_dir', type=str, required=True,
-                                  help='Directory path for VAE training data.')
 
     # Sampling arguments for Diffusion Transformer
     sample_diffusion_parser = subparsers.add_parser('sample_diffusion')
@@ -56,6 +55,8 @@ def parse_args():
     # Loss Plotting arguments
     plot_loss_parser = subparsers.add_parser('plot_loss')
     plot_loss_parser.set_defaults(func=plot_loss)
+    plot_loss_parser.add_argument('--type', type=str, required=True,
+                               help='The loss to plot, can either be "vae" or "dt"')
     
     args = parser.parse_args()
     return args
